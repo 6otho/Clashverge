@@ -2,16 +2,10 @@ const express = require('express');
 const axios = require('axios');
 const app = express();
 
-app.get('/*', async (req, res) => {
-  // 如果查询参数中存在 url 则优先使用
-  let subUrl = req.query.url;
+app.get('/', async (req, res) => {
+  const subUrl = req.query.url; // 从 URL 参数获取订阅链接
   if (!subUrl) {
-    // 否则从请求路径中获取（去掉最前面的斜杠后进行 URL 解码）
-    const encodedUrl = req.path.slice(1);
-    if (!encodedUrl) {
-      return res.status(400).send('请提供订阅链接（经过 URL 编码），例如：/https%3A%2F%2Flogin.djjc.cfd%2Fapi%2Fv1%2Fclient%2Fsubscribe%3Ftoken%3Dxxx');
-    }
-    subUrl = decodeURIComponent(encodedUrl);
+    return res.status(400).send('请提供订阅链接，例如 ?url=你的订阅地址');
   }
 
   try {
@@ -21,12 +15,12 @@ app.get('/*', async (req, res) => {
     });
     const rawData = response.data;
 
-    // 如果订阅数据不是 Base64 编码，直接使用原始数据
+    // 如果订阅数据不是Base64编码，直接使用原始数据
     let decodedData;
     try {
       decodedData = Buffer.from(rawData, 'base64').toString('utf-8');
-      // 检测解码后的数据是否出现乱码，如果有则说明原始数据可能并非 Base64 编码
-      if (/�/.test(decodedData)) {
+      // 这里可以加入额外判断，例如检查解码后是否包含异常字符，如果异常则使用原始数据
+      if (/�/.test(decodedData)) { // 检测是否有乱码字符
         decodedData = rawData;
       }
     } catch (e) {
