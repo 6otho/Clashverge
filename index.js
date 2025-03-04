@@ -8,35 +8,33 @@ app.get('/', async (req, res) => {
   if (!subUrl) {
     return res.status(400).send('请提供订阅链接，例如 ?url=你的订阅地址');
   }
-
+  
   try {
     // 从订阅链接获取原始数据
     const response = await axios.get(subUrl, {
-      headers: { 'User-Agent': 'Clash Verge' } // 模拟 Clash 请求头
+      headers: { 'User-Agent': 'Clash Verge' }
     });
     const rawData = response.data;
 
-    // 尝试 Base64 解码，如果解码后出现乱码则认为不是 Base64 编码
+    // 尝试Base64解码，解码后的数据如果看起来不是 YAML（缺少 proxies、port 等关键字），则直接使用原始数据
     let decodedData;
     try {
       decodedData = Buffer.from(rawData, 'base64').toString('utf-8');
-      if (/�/.test(decodedData)) {
+      if (!decodedData.includes('proxies:') && !decodedData.includes('port:') && !decodedData.includes('mixed-port:')) {
         decodedData = rawData;
       }
     } catch (e) {
       decodedData = rawData;
     }
 
-    // 先尝试将解码后的数据当作 YAML 配置文件来解析
-    let configFromYaml;
-    try {
-      configFromYaml = yaml.load(decodedData);
-      if (
-        typeof configFromYaml === 'object' &&
-        configFromYaml !== null &&
-        (configFromYaml.proxies || configFromYaml.port || configFromYaml['mixed-port'])
-      ) {
-        // 如果配置中存在 mixed-port 字段，则替换为 port
+    // 如果数据中包含 proxies 或 port 关键字，则认为它是完整的 YAML 配置
+    if (
+      decodedData.includes('proxies:') ||
+      decodedData.includes('port:') ||
+      decodedData.includes('mixed-port:')
+    ) {
+      let configFromYaml = yaml.load(decodedData);
+      if (configFromYaml && typeof configFromYaml === 'object' && !Array.isArray(configFromYaml)) {
         if (configFromYaml['mixed-port'] !== undefined) {
           configFromYaml.port = configFromYaml['mixed-port'];
           delete configFromYaml['mixed-port'];
@@ -44,11 +42,9 @@ app.get('/', async (req, res) => {
         res.set('Content-Type', 'text/yaml');
         return res.send(yaml.dump(configFromYaml));
       }
-    } catch (err) {
-      // 如果解析失败，则说明不是完整的 YAML 配置文件，进入下面自定义格式处理
     }
-
-    // 自定义格式：假设每行一个节点，字段以 | 分隔
+    
+    // 否则，尝试按照自定义格式解析（假设每行一个节点，字段以 | 分隔）
     const proxies = decodedData
       .split('\n')
       .filter(line => line.trim())
@@ -85,4 +81,25 @@ app.get('/', async (req, res) => {
         }
       ],
       rules: [
-        'D
+        'DOMAIN-SUFFIX,google.com,Auto',
+        'GEOIP,CN,DIRECT',
+        'MATCH,Auto'
+      ],
+      dns: {
+        enable: true,
+        listen: '0.0.0.0:53',
+        nameserver: [
+          '114.114.114.114',
+          '8.8.8.8'
+        ]
+      }
+    };
+
+    res.set('Content-Type', 'text/yaml');
+    res.send(yaml.dump(config));
+  } catch (error) {
+    res.status(500).send(`转换失败：${error.message}`);
+  }
+});
+
+module.exports = app;
