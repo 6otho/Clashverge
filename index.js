@@ -15,12 +15,12 @@ app.get('/', async (req, res) => {
     });
     const rawData = response.data;
 
-    // 如果订阅数据不是Base64编码，直接使用原始数据
+    // 如果订阅数据不是 Base64 编码，直接使用原始数据
     let decodedData;
     try {
       decodedData = Buffer.from(rawData, 'base64').toString('utf-8');
-      // 这里可以加入额外判断，例如检查解码后是否包含异常字符，如果异常则使用原始数据
-      if (/�/.test(decodedData)) { // 检测是否有乱码字符
+      // 检测解码后是否存在乱码字符，如果有则说明可能不是 Base64 编码
+      if (/�/.test(decodedData)) {
         decodedData = rawData;
       }
     } catch (e) {
@@ -40,28 +40,36 @@ app.get('/', async (req, res) => {
       };
     });
 
-    // 生成 Clash Verge YAML 配置
+    // 生成 Clash Verge YAML 配置（新版格式示例）
     const config = {
-      port: 7890,
-      'socks-port': 7891,
-      'allow-lan': true,
-      mode: 'Rule',
-      'log-level': 'info',
-      proxies,
-      'proxy-groups': [
+      "mixed-port": 7890,
+      "socks-port": 7891,
+      "allow-lan": true,
+      "mode": "Rule",
+      "log-level": "info",
+      "proxies": proxies,
+      "proxy-groups": [
         {
-          name: 'Auto',
-          type: 'url-test',
-          proxies: proxies.map(p => p.name),
-          url: 'http://www.gstatic.com/generate_204',
-          interval: 300
+          "name": "Auto",
+          "type": "url-test",
+          "proxies": proxies.map(p => p.name),
+          "url": "http://www.gstatic.com/generate_204",
+          "interval": 300
         }
       ],
-      rules: [
-        'DOMAIN-SUFFIX,google.com,Auto',
-        'GEOIP,CN,DIRECT',
-        'MATCH,Auto'
-      ]
+      "rules": [
+        "DOMAIN-SUFFIX,google.com,Auto",
+        "GEOIP,CN,DIRECT",
+        "MATCH,Auto"
+      ],
+      "dns": {
+        "enable": true,
+        "listen": "0.0.0.0:53",
+        "nameserver": [
+          "114.114.114.114",
+          "8.8.8.8"
+        ]
+      }
     };
 
     res.set('Content-Type', 'text/yaml');
