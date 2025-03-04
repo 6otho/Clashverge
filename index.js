@@ -1,5 +1,6 @@
 const express = require('express');
 const axios = require('axios');
+const yaml = require('js-yaml');
 const app = express();
 
 app.get('/', async (req, res) => {
@@ -15,11 +16,10 @@ app.get('/', async (req, res) => {
     });
     const rawData = response.data;
 
-    // 如果订阅数据不是 Base64 编码，直接使用原始数据
+    // 尝试 Base64 解码，如果解码后出现乱码则认为不是 Base64 编码
     let decodedData;
     try {
       decodedData = Buffer.from(rawData, 'base64').toString('utf-8');
-      // 检测解码后的数据是否存在乱码，如果有则说明原始数据可能并非 Base64 编码
       if (/�/.test(decodedData)) {
         decodedData = rawData;
       }
@@ -27,20 +27,47 @@ app.get('/', async (req, res) => {
       decodedData = rawData;
     }
 
-    // 根据换行拆分订阅内容并解析为节点列表
-    const proxies = decodedData.split('\n').filter(line => line.trim()).map(line => {
-      const [type, server, port, cipher, password] = line.split('|'); // 根据实际格式调整分割规则
-      return {
-        name: `${server}-${port}`,
-        type: type || 'ss',
-        server,
-        port: parseInt(port),
-        cipher: cipher || 'aes-256-gcm',
-        password
-      };
-    });
+    // 先尝试将解码后的数据当作 YAML 配置文件来解析
+    let configFromYaml;
+    try {
+      configFromYaml = yaml.load(decodedData);
+      if (
+        typeof configFromYaml === 'object' &&
+        configFromYaml !== null &&
+        (configFromYaml.proxies || configFromYaml.port || configFromYaml['mixed-port'])
+      ) {
+        // 如果配置中存在 mixed-port 字段，则替换为 port
+        if (configFromYaml['mixed-port'] !== undefined) {
+          configFromYaml.port = configFromYaml['mixed-port'];
+          delete configFromYaml['mixed-port'];
+        }
+        res.set('Content-Type', 'text/yaml');
+        return res.send(yaml.dump(configFromYaml));
+      }
+    } catch (err) {
+      // 如果解析失败，则说明不是完整的 YAML 配置文件，进入下面自定义格式处理
+    }
 
-    // 生成 Clash Verge YAML 配置（新版配置格式）
+    // 自定义格式：假设每行一个节点，字段以 | 分隔
+    const proxies = decodedData
+      .split('\n')
+      .filter(line => line.trim())
+      .map(line => {
+        const parts = line.split('|');
+        if (parts.length < 5) return null;
+        const [type, server, port, cipher, password] = parts;
+        return {
+          name: `${server}-${port}`,
+          type: type || 'ss',
+          server,
+          port: parseInt(port),
+          cipher: cipher || 'aes-256-gcm',
+          password
+        };
+      })
+      .filter(item => item !== null);
+
+    // 生成新版 Clash 配置文件
     const config = {
       port: 7890,
       'socks-port': 7891,
@@ -58,25 +85,4 @@ app.get('/', async (req, res) => {
         }
       ],
       rules: [
-        'DOMAIN-SUFFIX,google.com,Auto',
-        'GEOIP,CN,DIRECT',
-        'MATCH,Auto'
-      ],
-      dns: {
-        enable: true,
-        listen: '0.0.0.0:53',
-        nameserver: [
-          '114.114.114.114',
-          '8.8.8.8'
-        ]
-      }
-    };
-
-    res.set('Content-Type', 'text/yaml');
-    res.send(require('js-yaml').dump(config));
-  } catch (error) {
-    res.status(500).send(`转换失败：${error.message}`);
-  }
-});
-
-module.exports = app;
+        'D
